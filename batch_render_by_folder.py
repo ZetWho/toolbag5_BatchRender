@@ -20,15 +20,19 @@ Marmoset Toolbag 5 - 按文件夹批量渲染插件
 
 使用方式：
     运行后会弹出一个浮动面板：
-        - 摄像机：从场景中检测到的所有摄像机里选择一个用于渲染
-        - 父级文件夹（可留空）：留空表示扫描"场景根目录"下的所有顶层
+        - Camera：从场景中检测到的所有摄像机里选择一个用于渲染
+        - Parent Folder（可留空）：留空表示扫描"场景根目录"下的所有顶层
           文件夹；填写某个文件夹名称，则只遍历该文件夹下的子文件夹
           （用于场景本身也用文件夹分了层级的情况）
-        - 输出目录 / 文件名前缀 / 扩展名 / 分辨率 / 采样 / 透明通道
-        - "刷新列表"：重新扫描摄像机和文件夹，填充下拉列表
-        - "仅预览（不渲染）"：勾选后只打印将要执行的操作，不会真正渲染
-        - "开始批量渲染"：执行渲染，渲染结束后会把所有文件夹的可见性
+        - Output Dir / Prefix / Extension / Width / Height / Sampling / Transparency
+        - "Refresh"：重新扫描摄像机和文件夹，填充列表
+        - "Dry Run (Preview Only)"：勾选后只打印将要执行的操作，不会真正渲染
+        - "Render All"：执行渲染，渲染结束后会把所有文件夹的可见性
           还原为运行前的状态
+
+    注意：Marmoset Toolbag 的 UI 对中文字符渲染支持不佳（会显示为方块），
+    因此面板里的所有文字（标题/标签/按钮/状态提示）均使用英文，
+    仅代码注释和本说明使用中文。
 
 关于"文件夹"的识别方式：
     Toolbag 的 Python API 里，场景大纲中的文件夹/分组节点没有专属的
@@ -82,7 +86,7 @@ def get_target_folders(parent_name=""):
     if parent_name:
         parent = mset.findObject(parent_name)
         if parent is None:
-            mset.err("找不到名为 '{}' 的父级对象，改为扫描场景根目录。".format(parent_name))
+            mset.err("Parent object '{}' not found, scanning scene root instead.".format(parent_name))
             candidates = [o for o in mset.getAllObjects() if o.parent is None]
         else:
             candidates = parent.getChildren()
@@ -128,15 +132,15 @@ def batch_render(
     文件夹的可见性还原为调用前的状态。
     """
     if not folders:
-        log("没有检测到可渲染的文件夹，请检查场景结构或父级文件夹名称。")
+        log("No folders found to render. Check scene structure or parent folder name.")
         return []
 
     if not camera_name:
-        log("未指定摄像机，已取消渲染。")
+        log("No camera specified. Render cancelled.")
         return []
 
     if not output_dir:
-        log("未指定输出目录，已取消渲染。")
+        log("No output directory specified. Render cancelled.")
         return []
 
     if not dry_run:
@@ -155,7 +159,7 @@ def batch_render(
             out_path = os.path.join(output_dir, filename)
             output_paths.append(out_path)
 
-            log("[{}/{}] 渲染文件夹 '{}' -> {}".format(
+            log("[{}/{}] Rendering folder '{}' -> {}".format(
                 index + 1, len(folders), folder.name, out_path))
 
             if not dry_run:
@@ -168,7 +172,7 @@ def batch_render(
                     camera=camera_name,
                 )
 
-        log("完成，共处理 {} 个文件夹。".format(len(folders)))
+        log("Done. Processed {} folder(s).".format(len(folders)))
     finally:
         for folder in folders:
             if folder.uid in original_visibility:
@@ -178,6 +182,7 @@ def batch_render(
 
 
 # --------------------------------- UI ---------------------------------
+# 所有 UI 文字使用英文：Marmoset Toolbag 对中文字符渲染支持不佳（会显示方块）。
 
 
 class BatchRenderPanel:
@@ -185,10 +190,10 @@ class BatchRenderPanel:
         self.cameras = []
         self.folders = []
 
-        self.window = mset.UIWindow("按文件夹批量渲染")
+        self.window = mset.UIWindow("Batch Render By Folder")
 
         self.camera_list = mset.UIListBox()
-        self.camera_list.title = "摄像机"
+        self.camera_list.title = "Camera"
 
         self.parent_field = mset.UITextField()
 
@@ -211,23 +216,23 @@ class BatchRenderPanel:
         self.sampling_field.value = DEFAULT_SAMPLING
 
         self.transparency_check = mset.UICheckBox()
-        self.transparency_check.label = "透明背景"
+        self.transparency_check.label = "Transparent Background"
         self.transparency_check.value = DEFAULT_TRANSPARENCY
 
         self.dry_run_check = mset.UICheckBox()
-        self.dry_run_check.label = "仅预览（不渲染）"
+        self.dry_run_check.label = "Dry Run (Preview Only)"
         self.dry_run_check.value = False
 
         self.folder_list = mset.UIListBox()
-        self.folder_list.title = "检测到的文件夹（将全部渲染）"
+        self.folder_list.title = "Detected Folders (all will be rendered)"
 
         self.status_label = mset.UILabel()
-        self.status_label.text = "就绪，点击“刷新列表”开始。"
+        self.status_label.text = "Ready. Click Refresh to start."
 
-        self.refresh_button = mset.UIButton("刷新列表")
+        self.refresh_button = mset.UIButton("Refresh")
         self.refresh_button.onClick = self.refresh
 
-        self.render_button = mset.UIButton("开始批量渲染")
+        self.render_button = mset.UIButton("Render All")
         self.render_button.onClick = self.run_render
 
         self._build_layout()
@@ -237,48 +242,47 @@ class BatchRenderPanel:
         w = self.window
         w.clearElements()
 
-        w.addElement(mset.UILabel())
         w.addElement(self.camera_list)
         w.addReturn()
 
         parent_label = mset.UILabel()
-        parent_label.text = "父级文件夹（留空=场景根目录）:"
+        parent_label.text = "Parent Folder (blank = scene root):"
         w.addElement(parent_label)
         w.addElement(self.parent_field)
         w.addReturn()
 
         output_label = mset.UILabel()
-        output_label.text = "输出目录:"
+        output_label.text = "Output Dir:"
         w.addElement(output_label)
         w.addElement(self.output_field)
         w.addReturn()
 
         prefix_label = mset.UILabel()
-        prefix_label.text = "文件名前缀:"
+        prefix_label.text = "Filename Prefix:"
         w.addElement(prefix_label)
         w.addElement(self.prefix_field)
         w.addReturn()
 
         ext_label = mset.UILabel()
-        ext_label.text = "扩展名:"
+        ext_label.text = "Extension:"
         w.addElement(ext_label)
         w.addElement(self.ext_field)
         w.addReturn()
 
         width_label = mset.UILabel()
-        width_label.text = "宽度(-1=默认):"
+        width_label.text = "Width (-1 = default):"
         w.addElement(width_label)
         w.addElement(self.width_field)
         w.addReturn()
 
         height_label = mset.UILabel()
-        height_label.text = "高度(-1=默认):"
+        height_label.text = "Height (-1 = default):"
         w.addElement(height_label)
         w.addElement(self.height_field)
         w.addReturn()
 
         sampling_label = mset.UILabel()
-        sampling_label.text = "采样(-1=默认):"
+        sampling_label.text = "Sampling (-1 = default):"
         w.addElement(sampling_label)
         w.addElement(self.sampling_field)
         w.addReturn()
@@ -315,32 +319,32 @@ class BatchRenderPanel:
             self.folder_list.addItem(folder.name)
 
         self._set_status(
-            "检测到 {} 个摄像机，{} 个文件夹。".format(
+            "Found {} camera(s), {} folder(s).".format(
                 len(self.cameras), len(self.folders))
         )
 
     def run_render(self):
         if not self.cameras:
-            self._set_status("场景中没有摄像机，无法渲染。")
+            self._set_status("No cameras found in scene. Cannot render.")
             return
 
         cam_index = self.camera_list.selectedItem
         if cam_index is None or cam_index < 0 or cam_index >= len(self.cameras):
-            self._set_status("请先在列表中选择一个摄像机。")
+            self._set_status("Please select a camera from the list.")
             return
         camera_name = self.cameras[cam_index].name
 
         folders = get_target_folders(self.parent_field.value)
         if not folders:
-            self._set_status("没有检测到可渲染的文件夹。")
+            self._set_status("No folders found to render.")
             return
 
         output_dir = self.output_field.value.strip()
         if not output_dir:
-            self._set_status("请先填写输出目录。")
+            self._set_status("Please enter an output directory.")
             return
 
-        self._set_status("开始渲染...")
+        self._set_status("Rendering...")
         batch_render(
             folders=folders,
             camera_name=camera_name,
