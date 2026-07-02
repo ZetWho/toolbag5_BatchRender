@@ -21,25 +21,32 @@ Marmoset Toolbag 5 的 Python 批量渲染插件：按场景大纲中的“文�
 运行后会弹出浮动面板，依次填写：
 
 - **摄像机**：从检测到的所有摄像机中选择一个用于渲染。
-- **父级文件夹**（可留空）：留空表示遍历“场景根目录”下的所有顶层文件夹；
-  填写某个已有对象名称，则只遍历该对象下的直接子文件夹（用于场景本身有多级
-  文件夹结构的情况）。
+- **父级文件夹**（可留空）：留空表示从“场景根目录”开始递归扫描；填写某个
+  已有对象名称，则只从该对象开始往下递归扫描。文件夹可以任意嵌套多层，
+  脚本会递归找到整棵树里的所有文件夹。
+- **Leaf Folders Only**（默认勾选）：只渲染“叶子”文件夹，即自身不再包含
+  子文件夹的那一级——这才是真正对应“一个变体”的文件夹。取消勾选后，连
+  中间层级的容器文件夹也会各自单独渲染一张。
 - **输出目录 / 文件名前缀 / 扩展名 / 分辨率 / 采样 / 透明背景**。
 - **仅预览（不渲染）**：勾选后只打印将要执行的操作和输出路径，不会真正调用渲染，
   便于先确认文件夹检测结果和文件命名是否符合预期。
 
-点击 **刷新列表** 扫描摄像机与文件夹，点击 **开始批量渲染** 执行。渲染过程中
-会依次让每个文件夹单独可见、其余文件夹隐藏，渲染出图后，无论成功还是中途报错，
-都会把所有文件夹的可见性还原为运行前的状态。
+点击 **Refresh** 扫描摄像机与文件夹树，点击 **Render All** 执行。渲染每一个
+目标文件夹前，会先把扫描到的所有文件夹统一隐藏，再单独点亮该文件夹及其所有
+祖先文件夹，从而保证嵌套很深的文件夹也只会让自己这一条分支出现在画面里；
+渲染出图后，无论成功还是中途报错，都会把所有文件夹的可见性还原为运行前的
+状态。输出文件名由该文件夹在树中的完整路径拼接而成（例如
+`Characters_Hero_OutfitA.png`），避免不同分支下同名文件夹互相覆盖。
 
 也可以不使用 UI，直接在 Toolbag 的 Python 控制台调用：
 
 ```python
 import batch_render_by_folder as brf
 
-folders = brf.get_target_folders()  # 或 brf.get_target_folders("某个父文件夹名")
+targets, all_folders = brf.get_render_targets()  # 或 brf.get_render_targets("某个父文件夹名")
 brf.batch_render(
-    folders,
+    targets,
+    all_folders,
     camera_name="Camera01",
     output_dir="C:/renders",
     prefix="",
@@ -51,8 +58,11 @@ brf.batch_render(
 
 Toolbag 的 Python API 中，场景大纲里的文件夹/分组节点没有专属子类——摄像机
 (`CameraObject`)、灯光(`LightObject`)、网格(`MeshObject`) 等都有各自的子类，
-文件夹本质上是未被特化的基类 `mset.SceneObject` 实例。因此脚本用
-`type(obj) is mset.SceneObject`（精确类型匹配）判断某个对象是否为“文件夹”。
+文件夹本质上是未被特化的基类 `mset.SceneObject` 实例（官方 API 里用来创建
+分组的 `mset.groupObjects(list: List[SceneObject])` 也是把一组 SceneObject
+收纳进一个新的 SceneObject 容器，没有专属的 Folder/Group 子类）。因此脚本用
+`type(obj) is mset.SceneObject`（精确类型匹配）递归判断某个对象是否为
+“文件夹”，文件夹里可以再嵌套任意层级的文件夹。
 
 如果你的场景里存在没有专属子类、但又不属于要渲染的“文件夹”的对象（导致被
 误判为文件夹），可以把它的名字加进脚本顶部的 `EXCLUDE_NAMES` 列表中排除。
