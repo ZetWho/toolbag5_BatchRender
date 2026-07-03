@@ -126,9 +126,13 @@ def is_system_object(obj):
         "FogObject",
         "BackdropObject",
         "BakerObject",
+        "BakerTargetObject",
         "TextureProjectObject",
         "ShadowCatcherObject",
         "SubMeshObject",
+        "MeshObject",
+        "ExternalObject",
+        "PyTurntableObject",
     ]
     for excluded_type in excluded_types:
         if is_mset_type(obj, excluded_type):
@@ -404,10 +408,22 @@ def batch_render_current_scene():
 
     ext = format_extension(config.format)
     used_names = {}
+
+    # Track every object whose visibility we touch (uid -> (obj, original state)),
+    # so unchecked folders and ancestor chains are restored too.
     original_visibility = {}
 
-    for folder in selected_folders:
-        original_visibility[get_obj_uid(folder)] = folder.visible
+    def set_visible(obj, value):
+        uid = get_obj_uid(obj)
+        if uid not in original_visibility:
+            try:
+                original_visibility[uid] = (obj, obj.visible)
+            except Exception:
+                return
+        try:
+            obj.visible = value
+        except Exception:
+            pass
 
     log("=== Folder Batch Render Start | Camera: {} | Folders: {} ===".format(camera.name, len(selected_folders)))
     log("Output: {} | {}x{} | {} | Samples: {}".format(
@@ -420,10 +436,20 @@ def batch_render_current_scene():
         for index, folder in enumerate(selected_folders, 1):
             log("--- [{}/{}] {} ---".format(index, len(selected_folders), get_obj_name(folder)))
 
-            # Hide all selected folders, then show only the current folder.
-            for other in selected_folders:
-                other.visible = False
-            folder.visible = True
+            # Hide ALL candidate folders (checked and unchecked), so folders the
+            # user deselected never leak into any rendered image.
+            for other in folders:
+                set_visible(other, False)
+
+            # Show the current folder plus its ancestor chain: a hidden parent
+            # hides its children in Toolbag, so nested folders would otherwise
+            # render empty after the hide-all pass above.
+            current = folder
+            safety = 0
+            while current is not None and not is_scene_root(current) and safety < 128:
+                set_visible(current, True)
+                current = get_parent(current)
+                safety += 1
 
             output_path = unique_output_path(config.output_dir, get_obj_name(folder), ext, used_names)
 
@@ -436,11 +462,13 @@ def batch_render_current_scene():
                 err("FAIL: {} | {}".format(get_obj_name(folder), e))
 
     finally:
-        # Restore original visibility even if a render fails.
-        for folder in selected_folders:
-            uid = get_obj_uid(folder)
-            if uid in original_visibility:
-                folder.visible = original_visibility[uid]
+        # Restore every object we touched (selected, unchecked, and ancestors),
+        # even if a render fails.
+        for uid, (obj, was_visible) in original_visibility.items():
+            try:
+                obj.visible = was_visible
+            except Exception:
+                pass
         try:
             mset.freeUnusedResources()
         except Exception:
