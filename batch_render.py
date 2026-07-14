@@ -689,9 +689,22 @@ def build_ui():
     window.addElement(mset.UILabel("Folders To Render: {}".format(len(folders))))
     window.addReturn()
 
+    # Put the folder checkboxes inside a UIScrollBox so long lists scroll
+    # instead of stretching the panel. containedControl is an embedded
+    # UIWindow that accepts addElement/addReturn like the main window.
+    # Fall back to the main window if UIScrollBox is unavailable.
+    scroll_box = None
+    folder_area = window
+    try:
+        scroll_box = mset.UIScrollBox()
+        folder_area = scroll_box.containedControl
+    except Exception:
+        scroll_box = None
+        folder_area = window
+
     if not folders:
-        window.addElement(mset.UILabel("No folder/group-like objects found under Scene."))
-        window.addReturn()
+        folder_area.addElement(mset.UILabel("No folder/group-like objects found under Scene."))
+        folder_area.addReturn()
     else:
         for folder in folders:
             uid = get_obj_uid(folder)
@@ -707,12 +720,22 @@ def build_ui():
                 return toggle
 
             cb.onChange = make_toggle(uid, cb)
-            window.addElement(cb)
+            folder_area.addElement(cb)
 
             label_text = "{}  [{}]".format(get_obj_name(folder), type_name(folder))
             name_label = mset.UILabel(label_text)
-            window.addElement(name_label)
-            window.addReturn()
+            folder_area.addElement(name_label)
+            folder_area.addReturn()
+
+    if scroll_box is not None:
+        try:
+            # Cap the visible height of the scroll area (pixels); the list
+            # scrolls inside it once folders exceed this height.
+            folder_area.height = 260
+        except Exception:
+            pass
+        window.addElement(scroll_box)
+        window.addReturn()
 
     window.addReturn()
 
