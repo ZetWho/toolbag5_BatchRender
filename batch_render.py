@@ -47,6 +47,11 @@ class Config:
 config = Config()
 window = None
 
+# Escape hatch: native UI crashes cannot be caught from Python, so if the
+# collapsible camera drawer ever crashes Toolbag on your build, set this to
+# False to fall back to the flat camera list without touching other code.
+USE_CAMERA_DRAWER = True
+
 
 # -- Logging --
 def log(msg):
@@ -576,21 +581,22 @@ def build_ui():
 
     cameras = get_cameras()
     if cameras:
-        # Collapsible camera list. Like UIScrollBox, UIDrawer's
-        # containedControl must be ASSIGNED a full UIWindow; fall back to a
-        # flat list if UIDrawer is unavailable.
+        # Collapsible camera list. Canonical UIDrawer usage: the name is
+        # passed to the CONSTRUCTOR (a no-arg UIDrawer can crash Toolbag
+        # natively, beyond what try/except can catch), then a full UIWindow
+        # is assigned to containedControl. Do not touch .open/.title.
         camera_area = window
         drawer = None
-        try:
-            drawer = mset.UIDrawer()
-            drawer.title = "Scene Cameras ({})".format(len(cameras))
-            drawer.open = False
-            drawer_window = mset.UIWindow("Scene Cameras")
-            drawer.containedControl = drawer_window
-            camera_area = drawer_window
-        except Exception:
-            drawer = None
-            camera_area = window
+        if USE_CAMERA_DRAWER:
+            try:
+                drawer = mset.UIDrawer(name="Scene Cameras ({})".format(len(cameras)))
+                drawer_window = mset.UIWindow(name="Scene Cameras")
+                drawer.containedControl = drawer_window
+                camera_area = drawer_window
+            except Exception:
+                drawer = None
+                camera_area = window
+        if drawer is None:
             window.addElement(mset.UILabel("Scene Cameras:"))
             window.addReturn()
 
