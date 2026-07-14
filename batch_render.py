@@ -33,6 +33,14 @@ class Config:
         self.root_only = True       # True = direct children under Toolbag Scene root
         self.overwrite = True
         self.folder_enabled = {}    # uid -> bool
+        # Exact type names shown in the folder list. Exact matching matters:
+        # CameraObject/LightObject/MeshObject all inherit TransformObject, so
+        # an isinstance check would let cameras and lights into the list.
+        self.type_filter = {
+            "TransformObject": True,   # Toolbag group/folder nodes
+            "SceneObject": False,      # bare outliner containers
+            "MeshObject": False,       # individual meshes
+        }
 
 
 config = Config()
@@ -116,37 +124,8 @@ def is_scene_root(obj):
     return is_root_object(obj) and get_obj_name(obj).lower() == "scene"
 
 
-def is_system_object(obj):
-    """Objects that should not be treated as display folders."""
-    excluded_types = [
-        "RenderObject",
-        "CameraObject",
-        "LightObject",
-        "SkyBoxObject",
-        "FogObject",
-        "BackdropObject",
-        "BakerObject",
-        "BakerTargetObject",
-        "TextureProjectObject",
-        "ShadowCatcherObject",
-        "SubMeshObject",
-        "MeshObject",
-        "ExternalObject",
-        "PyTurntableObject",
-    ]
-    for excluded_type in excluded_types:
-        if is_mset_type(obj, excluded_type):
-            return True
-
-    # Some Toolbag outliner items may expose only a base SceneObject class.
-    # Keep a conservative name/type fallback for common non-render display items.
-    cls = type_name(obj).lower()
-    name = get_obj_name(obj).lower()
-    if "camera" in cls or "sky" in cls or "light" in cls or "render" in cls:
-        return True
-    if name in ["main camera", "camera", "sky", "render", "renders"]:
-        return True
-    return False
+def enabled_filter_types():
+    return [t for t, enabled in config.type_filter.items() if enabled]
 
 
 def object_depth(obj):
@@ -192,7 +171,13 @@ def is_render_folder_candidate(obj):
         return False
     if is_scene_root(obj):
         return False
-    if is_system_object(obj):
+    # Exact type-name allowlist driven by the UI type filter. Every other
+    # type (cameras, lights, sky, render object, submeshes, ...) is excluded
+    # automatically because its exact class name is never in the filter.
+    if type_name(obj) not in enabled_filter_types():
+        return False
+    # Name fallback for display-only items that surface as an allowed type.
+    if get_obj_name(obj).lower() in ["main camera", "camera", "sky", "render", "renders"]:
         return False
     # Do not require children here. Toolbag folder-like outliner nodes may not
     # expose their descendants through getAllObjects() the same way transforms do.
@@ -682,6 +667,24 @@ def build_ui():
     debug_btn.onClick = log_scene_tree
     window.addElement(debug_btn)
     window.addReturn()
+    window.addReturn()
+
+    # Type filter for the folder list
+    window.addElement(mset.UILabel("List Filter:"))
+
+    def make_filter_toggle(type_key, checkbox):
+        def toggle():
+            config.type_filter[type_key] = checkbox.value
+            build_ui()
+        return toggle
+
+    for type_key in ["TransformObject", "SceneObject", "MeshObject"]:
+        filter_cb = mset.UICheckBox()
+        filter_cb.value = config.type_filter.get(type_key, False)
+        filter_cb.onChange = make_filter_toggle(type_key, filter_cb)
+        window.addElement(filter_cb)
+        window.addElement(mset.UILabel(type_key))
+        window.addSpace(12)
     window.addReturn()
 
     # Folder List
