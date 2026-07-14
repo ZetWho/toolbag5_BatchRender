@@ -29,6 +29,7 @@ class Config:
         self.samples = 256
         self.transparency = False
         self.camera_name = ""      # empty = active camera
+        self.use_subcam = False     # render each folder with a camera found inside it
         self.viewport_pass = ""    # empty = final/composite viewport pass
         self.root_only = True       # True = direct children under Toolbag Scene root
         self.overwrite = True
@@ -258,6 +259,15 @@ def find_camera():
         return None
 
 
+def find_folder_camera(folder):
+    """First CameraObject (by name) among the folder's descendants, or None."""
+    cams = [o for o in collect_descendants(folder) if is_mset_type(o, "CameraObject")]
+    if not cams:
+        return None
+    cams.sort(key=lambda o: get_obj_name(o).lower())
+    return cams[0]
+
+
 def sanitize_filename(name):
     name = safe_name(name)
     name = re.sub(r'[\\/:*?"<>|]+', "_", name)
@@ -376,13 +386,18 @@ def batch_render_current_scene():
     if not ensure_output_dir():
         return
 
+    # With Use Sub-Cam the global camera is only a fallback for folders that
+    # contain no camera of their own, so a missing global camera is not fatal.
     camera = find_camera()
     if camera is None:
-        if config.camera_name.strip():
+        if config.use_subcam:
+            log("No global fallback camera; folders without their own camera will be skipped.")
+        elif config.camera_name.strip():
             err("Camera not found: {}".format(config.camera_name.strip()))
+            return
         else:
             err("No active camera found. Please enter a camera name or focus a viewport camera.")
-        return
+            return
 
     folders = get_folder_candidates()
     selected_folders = [f for f in folders if config.folder_enabled.get(get_obj_uid(f), True)]
@@ -410,7 +425,9 @@ def batch_render_current_scene():
         except Exception:
             pass
 
-    log("=== Folder Batch Render Start | Camera: {} | Folders: {} ===".format(camera.name, len(selected_folders)))
+    camera_desc = "Per-Folder Sub-Cam (fallback: {})".format(
+        camera.name if camera is not None else "none") if config.use_subcam else camera.name
+    log("=== Folder Batch Render Start | Camera: {} | Folders: {} ===".format(camera_desc, len(selected_folders)))
     log("Output: {} | {}x{} | {} | Samples: {}".format(
         config.output_dir, config.width, config.height, config.format, config.samples))
 
@@ -436,10 +453,27 @@ def batch_render_current_scene():
                 current = get_parent(current)
                 safety += 1
 
+            # Resolve the camera for this folder: its own sub-camera when
+            # Use Sub-Cam is enabled, otherwise the global camera.
+            folder_camera = camera
+            if config.use_subcam:
+                subcam = find_folder_camera(folder)
+                if subcam is not None:
+                    folder_camera = subcam
+                    log("Sub-cam: '{}'".format(get_obj_name(subcam)))
+                elif camera is not None:
+                    log("No camera inside '{}', using fallback '{}'.".format(
+                        get_obj_name(folder), camera.name))
+                else:
+                    fail_count += 1
+                    err("SKIP: {} | no camera inside folder and no fallback camera".format(
+                        get_obj_name(folder)))
+                    continue
+
             output_path = unique_output_path(config.output_dir, get_obj_name(folder), ext, used_names)
 
             try:
-                render_single_folder(folder, camera, output_path)
+                render_single_folder(folder, folder_camera, output_path)
                 success_count += 1
                 log("OK: {}".format(output_path))
             except Exception as e:
@@ -525,12 +559,41 @@ def build_ui():
     active_btn = mset.UIButton("Use Active")
     active_btn.onClick = use_active_camera
     window.addElement(active_btn)
+    window.addSpace(12)
+
+    # Render each folder with the camera found inside that folder; the
+    # camera name above then only serves as a fallback.
+    subcam_cb = mset.UICheckBox()
+    subcam_cb.value = config.use_subcam
+
+    def toggle_subcam():
+        config.use_subcam = subcam_cb.value
+
+    subcam_cb.onChange = toggle_subcam
+    window.addElement(subcam_cb)
+    window.addElement(mset.UILabel("Use Sub-Cam (camera inside each folder)"))
     window.addReturn()
 
     cameras = get_cameras()
     if cameras:
-        window.addElement(mset.UILabel("Scene Cameras:"))
-        window.addReturn()
+        # Collapsible camera list. Like UIScrollBox, UIDrawer's
+        # containedControl must be ASSIGNED a full UIWindow; fall back to a
+        # flat list if UIDrawer is unavailable.
+        camera_area = window
+        drawer = None
+        try:
+            drawer = mset.UIDrawer()
+            drawer.title = "Scene Cameras ({})".format(len(cameras))
+            drawer.open = False
+            drawer_window = mset.UIWindow("Scene Cameras")
+            drawer.containedControl = drawer_window
+            camera_area = drawer_window
+        except Exception:
+            drawer = None
+            camera_area = window
+            window.addElement(mset.UILabel("Scene Cameras:"))
+            window.addReturn()
+
         for cam in cameras:
             def make_use_camera(c):
                 def use_camera():
@@ -540,9 +603,13 @@ def build_ui():
 
             cam_btn = mset.UIButton("Use")
             cam_btn.onClick = make_use_camera(cam)
-            window.addElement(cam_btn)
+            camera_area.addElement(cam_btn)
             cam_label = mset.UILabel(cam.name)
-            window.addElement(cam_label)
+            camera_area.addElement(cam_label)
+            camera_area.addReturn()
+
+        if drawer is not None:
+            window.addElement(drawer)
             window.addReturn()
     else:
         window.addElement(mset.UILabel("No CameraObject found. Active viewport camera can still be used."))
@@ -649,6 +716,7 @@ def build_ui():
         config.output_dir = out_dir
 
         config.camera_name = camera_field.value.strip()
+        config.use_subcam = subcam_cb.value
         config.viewport_pass = pass_field.value.strip()
         config.transparency = transparency_cb.value
         config.overwrite = overwrite_cb.value
