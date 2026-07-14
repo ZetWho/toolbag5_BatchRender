@@ -690,14 +690,18 @@ def build_ui():
     window.addReturn()
 
     # Put the folder checkboxes inside a UIScrollBox so long lists scroll
-    # instead of stretching the panel. containedControl is an embedded
-    # UIWindow that accepts addElement/addReturn like the main window.
+    # instead of stretching the panel. containedControl must be ASSIGNED a
+    # full UIWindow (reading it yields nothing usable):
+    #   scrollbox = mset.UIScrollBox()
+    #   scrollbox.containedControl = mset.UIWindow(...)
     # Fall back to the main window if UIScrollBox is unavailable.
     scroll_box = None
     folder_area = window
     try:
         scroll_box = mset.UIScrollBox()
-        folder_area = scroll_box.containedControl
+        scroll_window = mset.UIWindow("Folders")
+        scroll_box.containedControl = scroll_window
+        folder_area = scroll_window
     except Exception:
         scroll_box = None
         folder_area = window
@@ -728,12 +732,6 @@ def build_ui():
             folder_area.addReturn()
 
     if scroll_box is not None:
-        try:
-            # Cap the visible height of the scroll area (pixels); the list
-            # scrolls inside it once folders exceed this height.
-            folder_area.height = 260
-        except Exception:
-            pass
         window.addElement(scroll_box)
         window.addReturn()
 
